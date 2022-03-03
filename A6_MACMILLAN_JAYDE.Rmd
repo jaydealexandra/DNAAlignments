@@ -1,0 +1,170 @@
+---
+output:
+  html_document: default
+  pdf_document: default
+---
+
+# DNA Alignments Assignment  
+Jayde MacMillan  
+20068250  
+March 3, 2022  
+  
+[Github repository](https://github.com/jaydealexandra/DNAAlignments.git)
+    
+  
+  
+## Setup
+
+Loads the packages required.
+```{r}
+library(BiocManager)
+library(Biostrings)
+library(ggtree)
+library(annotate)
+library(muscle)
+library(reshape2)
+library(rentrez)
+library(ape)
+library(dplyr)
+library(ggplot2)
+```
+## Alignments  
+  
+  
+  
+### Unknown Sequence
+Saves the provided sequence as an object called 'humanSeq'.
+```{r}
+humanSeq <- 'ATGTCTGATAATGGACCCCAAAATCAGCGAAATGCACCCCGCATTACGTTTGGTGGACCCTCAGATTCAA
+CTGGCAGTAACCAGAATGGAGAACGCAGTGGGGCGCGATCAAAACAACGTCGGCCCCAAGGTTTACCCAA
+TAATACTGCGTCTTGGTTCACCGCTCTCACTCAACATGGCAAGGAAGACCTTAAATTCCCTCGAGGACAA
+GGCGTTCCAATTAACACCAATAGCAGTCCAGATGACCAAATTGGCTACTACCGAAGAGCTACCAGACGAA
+TTCGTGGTGGTGACGGTAAAATGAAAGATCTCAGTCCAAGATGGTATTTCTACTACCTAGGAACTGGGCC
+AGAAGCTGGACTTCCCTATGGTGCTAACAAAGACGGCATCATATGGGTTGCAACTGAGGGAGCCTTGAAT
+ACACCAAAAGATCACATTGGCACCCGCAATCCTGCTAACAATGCTGCAATCGTGCTACAACTTCCTCAAG
+GAACAACATTGCCAAAAGGCTTCTACGCAGAAGGGAGCAGAGGCGGCAGTCAAGCCTCTTCTCGTTCCTC
+ATCACGTAGTCGCAACAGTTCAAGAAATTCAACTCCAGGCAGCAGTAGGGGAACTTCTCCTGCTAGAATG
+GCTGGCAATGGCGGTGATGCTGCTCTTGCTTTGCTGCTGCTTGACAGATTGAACCAGCTTGAGAGCAAAA
+TGTCTGGTAAAGGCCAACAACAACAAGGCCAAACTGTCACTAAGAAATCTGCTGCTGAGGCTTCTAAGAA
+GCCTCGGCAAAAACGTACTGCCACTAAAGCATACAATGTAACACAAGCTTTCGGCAGACGTGGTCCAGAA
+CAAACCCAAGGAAATTTTGGGGACCAGGAACTAATCAGACAAGGAACTGATTACAAACATTGGCCGCAAA
+TTGCACAATTTGCCCCCAGCGCTTCAGCGTTCTTCGGAATGTCGCGCATTGGCATGGAAGTCACACCTTC
+GGGAACGTGGTTGACCTACACAGGTGCCATCAAATTGGATGACAAAGATCCAAATTTCAAAGATCAAGTC
+ATTTTGCTGAATAAGCATATTGACGCATACAAAACATTCCCACCAACAGAGCCTAAAAAGGACAAAAAGA
+AGAAGGCTGATGAAACTCAAGCCTTACCGCAGAGACAGAAGAAACAGCAAACTGTGACTCTTCTTCCTGC
+TGCAGATTTGGATGATTTCTCCAAACAATTGCAACAATCCATGAGCAGTGCTGACTCAACTCAGGCCTAA'
+print(humanSeq)
+```
+  
+  
+### BLAST
+Runs 'humanSeq' in BLAST to find similar sequences and turns the results into a data frame. 
+```{r}
+humanSeqBLAST <- blastSequences(x= humanSeq, as = 'data.frame',   hitListSize = 30, timeout = 500)
+```
+  
+  
+Creates a vector of accession numbers from the BLAST results (humanSeqBLAST) and turns them into a data.frame object called 'hsHitsDF' with two columns (ID and Seq).
+```{r}
+hsHitsDF <- data.frame(ID=humanSeqBLAST$Hit_accession, Seq=humanSeqBLAST$Hsp_hseq, stringsAsFactors = FALSE)
+```
+  
+  
+Connects to the GenBank database and reads the nucleotide sequences using the accession numbers.
+```{r}
+humanHitSeqs <- read.GenBank(humanSeqBLAST$Hit_accession)
+```
+  
+Displays the species.
+```{r}
+attr(humanHitSeqs, "species")
+```
+As shown above, the sequences are from SARS-CoV-2. It is likely that the patient is suffering from this virus which is a cause for concern. 
+
+### MUSCLE Alignment  
+Using Multiple Sequence Comparison by Log-Expectation (MUSCLE), we can align multiple sequences of nucleotides with accuracy. 
+  
+  
+Pipes the data.frame 'hsHitsDF' to a DNAStringSet object called 'humanHitsDNAstring'.
+```{r}
+humanHitsDNAstring <- hsHitsDF$Seq %>% # Start with the sequences
+  as.character %>% # Converts to strings
+  lapply(.,paste0,collapse="") %>% # Collapses to a single string
+  unlist %>% # Flattens to a vector
+  DNAStringSet # Converts to DNAStringSet object
+```
+  
+  
+Adds a name to each sequence.
+```{r}
+names(humanHitsDNAstring) <- paste(1:nrow(hsHitsDF), hsHitsDF$ID, sep="_")
+```
+  
+  
+Uses `muscle()` on 'humanHitsDNAstring' to align multiple sequences.
+```{r}
+hsAlign <- muscle::muscle(stringset=humanHitsDNAstring, quiet=T)
+```
+  
+  
+Removes any sequences with large gaps and plots the data.
+```{r}
+hhSeqLen <- as.numeric(lapply(humanHitsDNAstring,length))
+qplot(hhSeqLen, xlim= c(1259.9, 1260.1), ylim= c(0,30), xlab= "Sequence Length (bp)")
+```
+  
+Figure 1.  A plot showing the length of the sequences that match the original sequence. All of the matching sequences are 1260bp long.
+  
+  
+
+### Distance Matrix
+  
+  
+Converts the DNAMultipleAlignment object 'hsAlign' to a DNABin object called 'hhAlignBin' using the `as.DNAbin()` function.
+```{r}
+hhAlignBin <- as.DNAbin(hsAlign)
+hhDM <- dist.dna(hhAlignBin, model="K80")
+```
+  
+  
+
+Rearrange from an n x n matrix to a ‘linear’ matrix using the `melt()` function.
+```{r}
+hhDMMat <- as.matrix(hhDM)
+mhhDat <- melt(hhDMMat)
+```
+  
+  
+Creates a pairwise distance matrix of 'mhhDat'.
+```{r}
+ggplot(data=mhhDat, aes(x=Var1, y=Var2, fill=value))+ 
+  geom_tile(color="white")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5), plot.title = element_text(hjust = 0.5))+
+  labs(title= "Distance Between Sequences", x= "Sequence", y= "Sequence", fill= "Distance")
+```
+  
+Figure 2. A pairwise distance matrix visualizing the distance between sequences.
+  
+  
+  
+## Phylogenetic Tree  
+  
+  
+Creates a neighbour-joining tree estimation using the `nj()` function.
+```{r}
+hhTree <- nj(hhDM)
+```
+  
+  
+Creates a plot of the phylogenetic tree using the `ggtree()` function.
+```{r}  
+ggtree(hhTree, branch.length = 'none', layout="fan") + geom_tiplab()
+```
+  
+Figure 3. A phylogeny showing the evolutionary relationships between the sequences.
+  
+  
+Saves the phylogenetic tree using the `write.tree()` function.
+```{r}
+write.tree(hhTree, "A6_MACMILLAN_JAYDE.tre")
+```
